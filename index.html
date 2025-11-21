@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPR vs LSPR: Director's Cut</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;500;700;900&display=swap');
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #030712;
+            font-family: 'Inter', sans-serif;
+        }
+        canvas {
+            display: block;
+            touch-action: none;
+            cursor: crosshair;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="presentationCanvas"></canvas>
+
+    <script>
+        /**
+         * THE ENGINE: DIRECTOR'S CUT
+         * Best of all versions + "Bussin" Liquid Biopsy Upgrade.
+         */
+        const canvas = document.getElementById('presentationCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let width, height;
+        let currentSlide = 0;
+        let globalTime = 0;
+        
+        const mouse = { x: 0, y: 0, click: false, vx: 0, vy: 0 };
+
+        // Palette
+        const C_BG = '#030712';
+        const C_ACCENT = '#FFD700'; // Gold/SPR
+        const C_NANO = '#22D3EE';   // Cyan/LSPR
+        const C_DRUG_A = '#EF4444'; // Red
+        const C_DRUG_B = '#3B82F6'; // Blue
+        const C_TEXT_MAIN = '#F8FAFC';
+        const C_TEXT_MUTED = '#94A3B8';
+        const C_GRID = 'rgba(255,255,255,0.02)';
+
+        // States
+        const sprState = { angle: 0, resonance: 0 };
+        const kineticsState = { time: 0, totalTime: 600, running: false, showA: true, showB: true, dataA: [], dataB: [] };
+        const lsprState = { analytes: [], shift: 0, bindingEvents: 0 };
+        const biopsyState = { cells: [], particles: [], effects: [] }; // New State for Slide 6
+        let endParticles = []; 
+        let particlesInit = false;
+
+        // Kinetics Data
+        function calcResponse(t, ka, kd, conc, rmax, injectionEnd) {
+            const Req = (ka * conc * rmax) / (ka * conc + kd);
+            if (t <= injectionEnd) return Req * (1 - Math.exp(-(ka * conc + kd) * t));
+            return (Req * (1 - Math.exp(-(ka * conc + kd) * injectionEnd))) * Math.exp(-kd * (t - injectionEnd));
+        }
+        for(let t=0; t<=kineticsState.totalTime; t+=2) {
+            kineticsState.dataA.push({t, val: calcResponse(t, 0.005, 0.05, 100, 100, 300)}); 
+            kineticsState.dataB.push({t, val: calcResponse(t, 0.0005, 0.005, 100, 100, 300)}); 
+        }
+
+        // --- RESIZE & INPUT ---
+        function resize() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            particlesInit = false;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        window.addEventListener('mousemove', e => { 
+            mouse.vx = e.clientX - mouse.x; mouse.vy = e.clientY - mouse.y;
+            mouse.x = e.clientX; mouse.y = e.clientY; 
+            
+            if (currentSlide === 2) { 
+                const centerX = width * 0.65;
+                sprState.angle = (mouse.x - centerX) / 300;
+                sprState.resonance = Math.exp(-(sprState.angle * sprState.angle) / 0.05);
+            }
+        });
+
+        window.addEventListener('mousedown', () => { mouse.click = true; handleInteractions(); });
+        window.addEventListener('mouseup', () => mouse.click = false);
+        window.addEventListener('keydown', e => {
+            if(e.key === "ArrowRight" || e.code === "Space") nextSlide();
+            if(e.key === "ArrowLeft") prevSlide();
+        });
+
+        function nextSlide() { if(currentSlide < slides.length -1) currentSlide++; }
+        function prevSlide() { if(currentSlide > 0) currentSlide--; }
+
+        function handleInteractions() {
+            if (currentSlide === 3) {
+                const bx = 80; const by = height * 0.85;
+                if(mouse.x > bx && mouse.x < bx+200 && mouse.y > by && mouse.y < by+30) kineticsState.showA = !kineticsState.showA;
+                if(mouse.x > bx && mouse.x < bx+200 && mouse.y > by+40 && mouse.y < by+70) kineticsState.showB = !kineticsState.showB;
+                const cx = width * 0.675; const cy = height * 0.9;
+                if(Math.hypot(mouse.x-(cx-40), mouse.y-cy) < 30) kineticsState.running = !kineticsState.running;
+                if(Math.hypot(mouse.x-(cx+40), mouse.y-cy) < 30) { kineticsState.running = false; kineticsState.time = 0; }
+                return;
+            }
+            if (mouse.x > width * 0.85) nextSlide();
+            if (mouse.x < width * 0.15) prevSlide();
+        }
+
+        // --- UTILS ---
+        function drawText(str, x, y, size, color, align='left', font='Inter', weight='600') {
+            ctx.font = `${weight} ${size}px ${font}`; ctx.fillStyle = color; ctx.textAlign = align; ctx.fillText(str, x, y);
+        }
+        
+        function drawHeader(num, title, sub, color) {
+            const x = 80; const y = 80;
+            ctx.font = `700 20px 'JetBrains Mono'`; ctx.fillStyle = color; ctx.textAlign = 'left'; ctx.fillText(num, x, y);
+            ctx.beginPath(); ctx.moveTo(x, y + 15); ctx.lineTo(x + 50, y + 15); ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.stroke();
+            ctx.font = `800 64px 'Inter'`; ctx.fillStyle = C_TEXT_MAIN;
+            ctx.shadowColor = 'rgba(255,255,255,0.1)'; ctx.shadowBlur = 20; ctx.fillText(title, x, y + 80); ctx.shadowBlur = 0;
+            if(sub) { ctx.font = `300 24px 'JetBrains Mono'`; ctx.fillStyle = C_TEXT_MUTED; ctx.fillText(sub, x, y + 120); }
+        }
+
+        function drawParagraph(text, x, y, w, lineHeight, size, color) {
+            const words = text.split(" "); let line = ""; let dy = 0;
+            ctx.font = `300 ${size}px Inter`; ctx.fillStyle = color; ctx.textAlign = 'left';
+            for(let i=0; i<words.length; i++) {
+                let testLine = line + words[i] + " ";
+                if (ctx.measureText(testLine).width > w && i > 0) { ctx.fillText(line, x, y + dy); line = words[i] + " "; dy += lineHeight; } 
+                else { line = testLine; }
+            }
+            ctx.fillText(line, x, y + dy);
+        }
+
+        function drawGlowLine(x1, y1, x2, y2, color, width=2, alpha=1) {
+            ctx.save(); ctx.globalAlpha = alpha; ctx.shadowBlur = 15; ctx.shadowColor = color;
+            ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.restore();
+        }
+
+        function initParticles(text) {
+            endParticles = [];
+            const tmp = document.createElement('canvas'); tmp.width = width; tmp.height = height;
+            const tctx = tmp.getContext('2d');
+            tctx.font = "900 150px Inter"; tctx.textAlign = "center"; tctx.textBaseline = "middle"; tctx.fillStyle = "white";
+            tctx.fillText(text, width/2, height/2);
+            const d = tctx.getImageData(0,0,width,height).data;
+            for(let y=0; y<height; y+=6) {
+                for(let x=0; x<width; x+=6) {
+                    if(d[(y*width+x)*4+3]>128) {
+                        const r = Math.random();
+                        endParticles.push({x, y, ox:x, oy:y, vx:0, vy:0, col: r>0.6?C_ACCENT:r>0.3?C_NANO:'#FFF', phase: r*Math.PI*2});
+                    }
+                }
+            }
+            particlesInit = true;
+        }
+
+        // --- SLIDES ---
+
+        const slides = [
+            // 0. TITLE SCREEN
+            {
+                draw: (t) => {
+                    const cx = width / 2; const cy = height / 2;
+                    ctx.save(); ctx.translate(cx, cy); ctx.rotate(t * 0.1);
+                    ctx.strokeStyle = 'rgba(255, 215, 0, 0.15)'; ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    for (let i = 0; i < 5; i++) {
+                        const angle = (Math.PI * 2 * i) / 5;
+                        for(let j=0; j<10; j++) {
+                            const offset = j * 0.1; 
+                            ctx.moveTo(0,0); 
+                            ctx.lineTo(Math.cos(angle + offset + t*0.2) * 400, Math.sin(angle + offset + t*0.2) * 400);
+                            ctx.lineTo(Math.cos(angle + offset + Math.PI/5 + t*0.2) * 150, Math.sin(angle + offset + Math.PI/5 + t*0.2) * 150);
+                        }
+                    }
+                    ctx.stroke(); ctx.restore();
+                    ctx.shadowColor = C_ACCENT; ctx.shadowBlur = 40;
+                    drawText("PLASMONICS", cx, cy - 20, 120, '#FFF', 'center', 'Inter', '900');
+                    ctx.shadowBlur = 0;
+                    drawText("FROM GOLD FILMS TO NANOSTARS", cx, cy + 40, 24, C_ACCENT, 'center', 'JetBrains Mono', '400');
+                    drawText("PRESS SPACE TO START", cx, height - 80, 16, `rgba(255,255,255,${0.5 + Math.sin(t*3)*0.5})`, 'center', 'JetBrains Mono');
+                }
+            },
+
+            // 1. THE HOOK (RE-REWORKED: ACCURATE SPR WAVE)
+            {
+                draw: (t) => {
+                    // LEFT: SNAPSHOT
+                    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, width/2, height); ctx.clip();
+                    ctx.fillStyle = '#111'; ctx.fillRect(0,0,width/2,height);
+                    for(let i=0; i<50; i++) { ctx.fillStyle = `rgba(255,255,255,${Math.random()*0.1})`; ctx.fillRect(Math.random()*(width/2), Math.random()*height, 2, 2); }
+                    const snapX = width * 0.25; const snapY = height * 0.5;
+                    ctx.fillStyle = '#FFF';
+                    if (Math.floor(t * 2) % 2 === 0) { ctx.beginPath(); ctx.arc(snapX, snapY - 50, 8, 0, Math.PI*2); ctx.fill(); drawText("DATA POINT 1", snapX + 20, snapY - 50, 12, '#FFF'); }
+                    if (Math.floor(t * 2) % 3 === 0) { ctx.beginPath(); ctx.arc(snapX + 100, snapY + 50, 8, 0, Math.PI*2); ctx.fill(); drawText("DATA POINT 2", snapX + 120, snapY + 50, 12, '#FFF'); }
+                    drawText("THE SNAPSHOT (ELISA)", width*0.25, 100, 24, '#888', 'center', 'JetBrains Mono');
+                    drawText("Endpoint Only. Missing the Story.", width*0.25, 140, 16, '#555', 'center');
+                    ctx.restore();
+
+                    // RIGHT: MOVIE (ACCURATE SPR WAVE)
+                    ctx.save(); ctx.beginPath(); ctx.rect(width/2, 0, width/2, height); ctx.clip();
+                    const grad = ctx.createLinearGradient(width/2, 0, width, height);
+                    grad.addColorStop(0, '#0f172a'); grad.addColorStop(1, '#1e1b4b');
+                    ctx.fillStyle = grad; ctx.fillRect(width/2, 0, width/2, height);
+                    
+                    // Interaction: Mouse Y controls Refractive Index (Shift in Resonance)
+                    let riShift = 0;
+                    if (mouse.x > width/2) {
+                        riShift = (mouse.y / height) * 20; // Simulate binding
+                    }
+
+                    // Draw Surface
+                    const surfaceY = height * 0.6;
+                    ctx.strokeStyle = C_ACCENT; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.moveTo(width/2, surfaceY); ctx.lineTo(width, surfaceY); ctx.stroke();
+
+                    // Draw SPP Wave (Longitudinal Density Wave)
+                    // Visualized as moving intense pulses along the surface
+                    for (let x = width/2; x < width; x += 10) {
+                        // Physics: SPP wave vector
+                        const k_spp = 0.1; 
+                        // Intensity depends on resonance match (simulated by interaction)
+                        // Optimal RI is roughly center screen
+                        const resonanceMatch = Math.exp(-Math.pow((riShift - 10)/5, 2)); 
+                        
+                        const phase = (x * k_spp) - (t * 10);
+                        const amplitude = Math.cos(phase);
+                        
+                        // Draw field lines sticking up (Evanescent field)
+                        if (amplitude > 0) {
+                            const fieldHeight = 60 * amplitude * resonanceMatch;
+                            ctx.strokeStyle = `rgba(255, 215, 0, ${0.5 * amplitude * resonanceMatch})`;
+                            ctx.beginPath(); 
+                            ctx.moveTo(x, surfaceY); 
+                            ctx.lineTo(x, surfaceY - fieldHeight); 
+                            ctx.stroke();
+                        }
+                        
+                        // Draw surface charge density
+                        const chargeRadius = 3 * Math.abs(amplitude) * resonanceMatch;
+                        ctx.fillStyle = amplitude > 0 ? '#FFF' : C_ACCENT;
+                        ctx.beginPath(); ctx.arc(x, surfaceY, chargeRadius, 0, Math.PI*2); ctx.fill();
+                    }
+
+                    drawText("THE MOVIE (SPR)", width*0.75, 100, 24, C_ACCENT, 'center', 'JetBrains Mono');
+                    drawText("Real-Time SPP Wave. Move mouse Y to bind.", width*0.75, 140, 16, '#cbd5e1', 'center');
+                    ctx.restore();
+
+                    ctx.strokeStyle = '#FFF'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(width/2, 0); ctx.lineTo(width/2, height); ctx.stroke();
+                }
+            },
+
+            // 2. SPR SIMULATION
+            {
+                draw: (t) => {
+                    drawHeader("02", "The Physics", "Kretschmann Configuration", C_ACCENT);
+                    const sx = width * 0.65; const sy = height * 0.45; const scale = 1.3;
+                    // Prism
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)'; ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
+                    ctx.beginPath(); ctx.moveTo(sx, sy - 100*scale); ctx.lineTo(sx + 200*scale, sy + 100*scale); ctx.lineTo(sx - 200*scale, sy + 100*scale); ctx.closePath(); ctx.fill(); ctx.stroke();
+                    // Gold
+                    ctx.shadowColor = C_ACCENT; ctx.shadowBlur = 20; ctx.strokeStyle = C_ACCENT; ctx.lineWidth = 8;
+                    ctx.beginPath(); ctx.moveTo(sx - 220*scale, sy + 102*scale); ctx.lineTo(sx + 220*scale, sy + 102*scale); ctx.stroke(); ctx.shadowBlur = 0;
+                    
+                    // Laser
+                    const angle = sprState.angle; 
+                    const laserStart = {x: sx - 300*scale, y: sy - 100*scale + (angle * 200)};
+                    const hit = {x: sx, y: sy + 102*scale};
+                    const reflect = {x: sx + 300*scale, y: sy - 100*scale + (angle * 200)};
+                    const res = sprState.resonance; const refInt = 1.0 - (res * 0.95); 
+
+                    drawGlowLine(laserStart.x, laserStart.y, hit.x, hit.y, '#ef4444', 4);
+                    drawGlowLine(hit.x, hit.y, reflect.x, reflect.y, '#ef4444', 4 * refInt + 1, refInt);
+
+                    if (res > 0.1) {
+                        const depth = 120 * res;
+                        const grad = ctx.createLinearGradient(sx, sy+105*scale, sx, sy+105*scale+depth);
+                        grad.addColorStop(0, `rgba(255, 215, 0, ${res * 0.8})`); grad.addColorStop(1, 'rgba(0,0,0,0)');
+                        ctx.fillStyle = grad; ctx.fillRect(sx - 150, sy+105*scale, 300, depth);
+                        drawText("RESONANCE LOCKED", sx, sy + 280*scale, 16, C_ACCENT, 'center', 'JetBrains Mono');
+                    } else {
+                        drawText("ADJUST ANGLE", sx, sy + 280*scale, 14, '#475569', 'center', 'JetBrains Mono');
+                    }
+                    ["Prism: Couples light", "Gold: 50nm film", "SPP: Electron wave", "TASK: Tune resonance"].forEach((t, i) => {
+                        drawText(t, 80, 260 + (i * 50), 18, i===3?C_ACCENT:C_TEXT_MAIN, 'left', 'JetBrains Mono');
+                    });
+                }
+            },
+
+            // 3. KINETICS
+            {
+                draw: (t) => {
+                    drawHeader("03", "The Data", "Affinity vs. Residence Time", C_ACCENT);
+                    drawParagraph("Affinity tells you how strong. Kinetics tells you how long. Residence time is king.", 80, 240, 400, 32, 18, C_TEXT_MUTED);
+
+                    if (kineticsState.running && kineticsState.time < kineticsState.totalTime) kineticsState.time += 4; 
+                    const gx = width * 0.45; const gy = height * 0.25; const gw = width * 0.45; const gh = height * 0.55;
+
+                    ctx.strokeStyle = '#334155'; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(gx, gy + gh); ctx.lineTo(gx + gw, gy + gh); ctx.stroke();
+                    
+                    const drawCurve = (data, color) => {
+                        ctx.beginPath(); ctx.strokeStyle = color; ctx.lineWidth = 4; ctx.lineCap = 'round';
+                        for(let i=0; i<data.length; i++) {
+                            if (data[i].t > kineticsState.time) break;
+                            const px = gx + (data[i].t / kineticsState.totalTime) * gw;
+                            const py = (gy + gh) - (data[i].val / 100) * gh;
+                            if (i===0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                        }
+                        ctx.stroke();
+                    };
+                    if (kineticsState.showA) drawCurve(kineticsState.dataA, C_DRUG_A);
+                    if (kineticsState.showB) drawCurve(kineticsState.dataB, C_DRUG_B);
+
+                    const washX = gx + (300 / 600) * gw;
+                    ctx.setLineDash([4, 4]); ctx.strokeStyle = '#64748B'; ctx.beginPath(); ctx.moveTo(washX, gy); ctx.lineTo(washX, gy+gh); ctx.stroke(); ctx.setLineDash([]);
+                    drawText("WASH", washX, gy - 15, 12, '#64748B', 'center');
+
+                    const bx = 80; const by = 450;
+                    const drawToggle = (lbl, col, active, yOff) => {
+                        ctx.fillStyle = active ? col : '#1e293b'; ctx.fillRect(bx, by + yOff, 20, 20);
+                        drawText(lbl, bx + 35, by + yOff + 15, 16, '#cbd5e1');
+                    };
+                    drawToggle("Drug A (Fast Off) - The Bad Date", C_DRUG_A, kineticsState.showA, 0);
+                    drawToggle("Drug B (Slow Off) - The Keeper", C_DRUG_B, kineticsState.showB, 40);
+
+                    const cx = width * 0.675; const cy = height * 0.9;
+                    ctx.fillStyle = kineticsState.running ? '#f59e0b' : '#10b981'; ctx.beginPath(); ctx.arc(cx - 40, cy, 30, 0, Math.PI*2); ctx.fill();
+                    drawText(kineticsState.running ? "||" : "▶", cx - 40, cy + 8, 24, '#FFF', 'center');
+                    ctx.fillStyle = '#334155'; ctx.beginPath(); ctx.arc(cx + 40, cy, 30, 0, Math.PI*2); ctx.fill();
+                    drawText("↻", cx + 40, cy + 8, 24, '#FFF', 'center');
+                }
+            },
+
+            // 4. THE VIBE CHECK
+            {
+                draw: (t) => {
+                    const cx = width / 2;
+                    drawHeader("04", "The Vibe Check", "Tale of the Tape", C_TEXT_MAIN);
+                    const cy = height / 2; const barW = 300;
+                    const labels = ["THROUGHPUT", "INFO DENSITY", "COST EFFICIENCY", "COOL FACTOR"];
+                    const eVals = [9, 2, 8, 1]; const sVals = [4, 10, 3, 10];
+                    labels.forEach((l, i) => {
+                        const y = cy - 40 + (i * 80);
+                        drawText(l, cx, y - 10, 14, '#94A3B8', 'center', 'JetBrains Mono');
+                        ctx.fillStyle = '#1e293b'; ctx.fillRect(cx - 10 - barW, y, barW, 16);
+                        ctx.shadowBlur = 10; ctx.shadowColor = '#f472b6'; ctx.fillStyle = '#f472b6'; ctx.fillRect(cx - 10 - (barW*(eVals[i]/10)), y, barW*(eVals[i]/10), 16); ctx.shadowBlur = 0;
+                        ctx.fillStyle = '#1e293b'; ctx.fillRect(cx + 10, y, barW, 16);
+                        ctx.shadowBlur = 10; ctx.shadowColor = C_ACCENT; ctx.fillStyle = C_ACCENT; 
+                        if(sVals[i]===10) ctx.fillStyle = `rgba(255,215,0,${Math.sin(t*5)*0.2+0.8})`; // Pulse
+                        ctx.fillRect(cx + 10, y, barW*(sVals[i]/10), 16);
+                    });
+                    drawText("ELISA", cx - 160, cy - 100, 24, '#f472b6', 'center', 'Inter', '800');
+                    drawText("SPR", cx + 160, cy - 100, 24, C_ACCENT, 'center', 'Inter', '800');
+                }
+            },
+
+            // 5. LSPR SIMULATION
+            {
+                draw: (t) => {
+                    drawHeader("05", "The Evolution", "LSPR: Nano-Scale Sensing", C_NANO);
+                    drawParagraph("We ditched the prism. Now the particle is the sensor. Watch the spectral shift (Cyan to Red) as molecules bind.", 80, 260, 500, 32, 20, '#cbd5e1');
+
+                    const nx = width * 0.7; const ny = height * 0.5;
+                    if (Math.random() > 0.95) lsprState.analytes.push({x: Math.random()*width, y: -50, vx: (Math.random()-0.5)*2, vy: Math.random()*2+1, angle: Math.random(), bound: false});
+
+                    lsprState.analytes.forEach(p => {
+                        if (!p.bound) {
+                            p.x += p.vx; p.y += p.vy;
+                            if (Math.hypot(p.x-nx, p.y-ny) < 90) { p.bound = true; lsprState.bindingEvents++; lsprState.shift = Math.min(1, lsprState.shift + 0.1); }
+                        }
+                        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.angle);
+                        ctx.strokeStyle = '#FFF'; ctx.lineWidth = 3;
+                        ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(0,10); ctx.moveTo(0,0); ctx.lineTo(-5,-7); ctx.moveTo(0,0); ctx.lineTo(5,-7); ctx.stroke();
+                        ctx.restore();
+                    });
+
+                    const r = Math.floor(lsprState.shift * 255); const g = Math.floor(243 * (1 - lsprState.shift)); const b = Math.floor(255 * (1 - lsprState.shift));
+                    const color = `rgba(${r},${g},${b}, 0.8)`;
+                    const pulse = 1 + Math.sin(t * 3) * 0.05;
+                    const grad = ctx.createRadialGradient(nx, ny, 40, nx, ny, 120 + (lsprState.shift * 30));
+                    grad.addColorStop(0, color); grad.addColorStop(1, 'rgba(0,0,0,0)');
+                    
+                    ctx.globalCompositeOperation = 'screen'; ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(nx, ny, 180, 0, Math.PI*2); ctx.fill();
+                    ctx.globalCompositeOperation = 'source-over';
+
+                    ctx.fillStyle = '#d97706'; ctx.beginPath();
+                    for(let i=0; i<6; i++) {
+                        const angle = (i * Math.PI * 2) / 6; const rad = (i % 2 === 0) ? 60 : 40;
+                        ctx.lineTo(nx + Math.cos(angle)*rad, ny + Math.sin(angle)*rad);
+                    }
+                    ctx.fill();
+                    drawText(`BINDING EVENTS: ${lsprState.bindingEvents}`, nx, ny + 200, 16, C_NANO, 'center', 'JetBrains Mono');
+                }
+            },
+
+            // 6. REAL WORLD
+            {
+                draw: (t) => {
+                    const cx = width / 2;
+                    drawText("06. REAL WORLD", cx, 60, 20, '#f472b6', 'center', 'JetBrains Mono');
+                    drawText("Liquid Biopsy: Signal Amplification", cx, 120, 56, '#FFF', 'center', 'Inter', '800');
+
+                    const vy = height * 0.5; 
+                    const vHeight = 250;
+                    
+                    // 1. The Vein (3D Cylinder Effect)
+                    const vGrad = ctx.createLinearGradient(0, vy - vHeight/2, 0, vy + vHeight/2);
+                    vGrad.addColorStop(0, '#2a0a0a'); // Dark edges
+                    vGrad.addColorStop(0.3, '#450a0a');
+                    vGrad.addColorStop(0.5, '#601010'); // Light center
+                    vGrad.addColorStop(0.7, '#450a0a');
+                    vGrad.addColorStop(1, '#2a0a0a');
+                    ctx.fillStyle = vGrad; ctx.fillRect(0, vy - vHeight/2, width, vHeight);
+                    
+                    // Pulse Walls
+                    const pulse = Math.sin(t*3) * 2;
+                    ctx.strokeStyle = '#991b1b'; ctx.lineWidth = 4;
+                    ctx.beginPath(); ctx.moveTo(0, vy - vHeight/2 + pulse); ctx.lineTo(width, vy - vHeight/2 + pulse); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(0, vy + vHeight/2 - pulse); ctx.lineTo(width, vy + vHeight/2 - pulse); ctx.stroke();
+
+                    // 2. Cell Simulation (Parallax Layers)
+                    if (biopsyState.cells.length === 0) {
+                        for(let i=0; i<25; i++) { // Init cells
+                            biopsyState.cells.push({
+                                x: Math.random() * width,
+                                y: vy + (Math.random()-0.5) * (vHeight - 60),
+                                type: Math.random() > 0.9 ? 'CANCER' : 'RBC',
+                                speed: Math.random() * 2 + 1,
+                                layer: Math.random(), // 0 = back, 1 = front
+                                angle: Math.random() * Math.PI
+                            });
+                        }
+                    }
+
+                    // Spawn Nanoparticles
+                    if (Math.random() > 0.97) {
+                        biopsyState.particles.push({
+                            x: -20, y: vy + (Math.random()-0.5) * (vHeight - 80),
+                            speed: 4, active: true
+                        });
+                    }
+
+                    ctx.save(); 
+                    // Draw Cells
+                    biopsyState.cells.forEach(c => {
+                        c.x += c.speed + (Math.sin(t + c.layer) * 0.5); // Natural flow
+                        if (c.x > width + 50) c.x = -50;
+                        
+                        const scale = 0.5 + c.layer * 0.5;
+                        const brightness = 50 + c.layer * 50;
+                        
+                        ctx.save();
+                        ctx.translate(c.x, c.y);
+                        ctx.rotate(c.angle + t * (c.speed * 0.1));
+                        
+                        if (c.type === 'RBC') {
+                            ctx.fillStyle = `rgba(239, 68, 68, ${0.5 + c.layer*0.5})`; // Red
+                            ctx.beginPath(); ctx.ellipse(0, 0, 20*scale, 14*scale, 0, 0, Math.PI*2); 
+                            // Dimple
+                            ctx.fillStyle = `rgba(185, 28, 28, ${0.6 + c.layer*0.4})`;
+                            ctx.beginPath(); ctx.ellipse(0, 0, 10*scale, 7*scale, 0, 0, Math.PI*2); 
+                            ctx.fill();
+                        } else {
+                            // Exosome (Target)
+                            ctx.fillStyle = '#d946ef'; // Fuchsia
+                            ctx.shadowColor = '#d946ef'; ctx.shadowBlur = 10 * scale;
+                            ctx.beginPath(); ctx.arc(0, 0, 12*scale, 0, Math.PI*2); ctx.fill();
+                            ctx.shadowBlur = 0;
+                        }
+                        ctx.restore();
+                    });
+
+                    // Draw Gold Nanoparticles & Interaction
+                    biopsyState.particles.forEach((p, idx) => {
+                        p.x += p.speed;
+                        
+                        // Draw Star
+                        ctx.fillStyle = C_ACCENT;
+                        ctx.shadowColor = C_ACCENT; ctx.shadowBlur = 10 + Math.sin(t*10)*5;
+                        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(t * 2);
+                        ctx.beginPath();
+                        for(let j=0; j<5; j++) {
+                            ctx.lineTo(Math.cos(j*Math.PI*0.4)*10, Math.sin(j*Math.PI*0.4)*10);
+                            ctx.lineTo(Math.cos(j*Math.PI*0.4 + 0.6)*4, Math.sin(j*Math.PI*0.4 + 0.6)*4);
+                        }
+                        ctx.fill(); ctx.restore(); ctx.shadowBlur = 0;
+
+                        // Collision Detection with Cancer cells
+                        if (p.active) {
+                            biopsyState.cells.forEach(c => {
+                                if (c.type === 'CANCER' && Math.hypot(p.x - c.x, p.y - c.y) < 30) {
+                                    p.active = false; // Bind
+                                    biopsyState.effects.push({x: c.x, y: c.y, life: 1.0, text: "DETECTED"});
+                                }
+                            });
+                        }
+                    });
+
+                    // Render Effects (Explosions/Text)
+                    biopsyState.effects = biopsyState.effects.filter(e => e.life > 0);
+                    biopsyState.effects.forEach(e => {
+                        e.life -= 0.02;
+                        e.y -= 1; // Float up
+                        
+                        // Shockwave
+                        ctx.strokeStyle = `rgba(255, 215, 0, ${e.life})`;
+                        ctx.lineWidth = 3;
+                        ctx.beginPath(); ctx.arc(e.x, e.y + 20, 40 * (1-e.life), 0, Math.PI*2); ctx.stroke();
+                        
+                        // Text
+                        ctx.font = "800 16px 'Inter'";
+                        ctx.fillStyle = `rgba(255, 255, 255, ${e.life})`;
+                        ctx.fillText(e.text, e.x, e.y);
+                    });
+
+                    ctx.restore();
+                    
+                    drawParagraph("Sandwich Assays amplify the signal. Gold nanoparticles hunt down rare biomarkers, turning a faint biological signal into a clear optical readout.", cx - 350, vy + vHeight/2 + 40, 700, 30, 18, C_TEXT_MUTED);
+                }
+            },
+
+            // 7. HORIZONS (COMPLEX CHIP)
+            {
+                draw: (t) => {
+                    const cx = width / 2;
+                    drawHeader("07", "Horizons", "Lab-on-a-Chip Integration", '#818cf8');
+
+                    const chipW = width * 0.6; const chipH = 350;
+                    const chipX = cx - chipW/2; const chipY = height/2 - 120;
+
+                    const gGrad = ctx.createLinearGradient(chipX, chipY, chipX, chipY + chipH);
+                    gGrad.addColorStop(0, 'rgba(255,255,255,0.08)'); gGrad.addColorStop(1, 'rgba(255,255,255,0.03)');
+                    ctx.fillStyle = gGrad; ctx.fillRect(chipX, chipY, chipW, chipH);
+                    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 2; ctx.strokeRect(chipX, chipY, chipW, chipH);
+
+                    const inY = [chipY + 80, chipY + chipH/2, chipY + chipH - 80];
+                    const mergeX = chipX + 150; const detX = chipX + chipW - 120; const outX = chipX + chipW - 20;
+
+                    ctx.shadowColor = '#00F3FF'; ctx.shadowBlur = 8;
+                    ctx.strokeStyle = 'rgba(0, 243, 255, 0.15)'; ctx.lineWidth = 14; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                    ctx.beginPath();
+
+                    inY.forEach(y => { ctx.moveTo(chipX, y); ctx.lineTo(mergeX, chipY+chipH/2); });
+                    let currX = mergeX; const midY = chipY+chipH/2;
+                    ctx.moveTo(mergeX, midY);
+                    for(let i=0; i<6; i++) {
+                        const dir = (i%2===0) ? -1 : 1;
+                        ctx.lineTo(currX + 40, midY + (dir * 60)); ctx.lineTo(currX + 80, midY);
+                        currX += 80;
+                    }
+                    ctx.lineTo(detX, midY); ctx.lineTo(outX, midY);
+                    ctx.stroke(); ctx.shadowBlur = 0;
+
+                    ctx.fillStyle = '#FFF';
+                    [...inY.map(y=>({x:chipX+10, y})), {x:outX, y:midY}].forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI*2); ctx.fill(); });
+
+                    const speed = 200; 
+                    for(let i=0; i<30; i++) {
+                        let dist = (t * speed + i * 60) % (chipW + 200);
+                        let px = chipX + dist; let py = midY;
+                        if (px < mergeX) { 
+                            py = inY[i%3]; px = chipX + (dist * 0.5); 
+                            const progress = (px - chipX) / (mergeX - chipX);
+                            py = inY[i%3] + (midY - inY[i%3]) * progress;
+                        } 
+                        else if (px >= mergeX && px < currX) { 
+                            const localX = px - mergeX;
+                            py = midY + Math.sin(localX * 0.08) * 60;
+                        }
+                        if (px < outX) {
+                            ctx.fillStyle = i%2===0 ? '#00F3FF' : '#d946ef'; ctx.shadowColor = ctx.fillStyle; ctx.shadowBlur = 10;
+                            ctx.beginPath(); ctx.arc(px, py, 4, 0, Math.PI*2); ctx.fill();
+                        }
+                    }
+                    ctx.shadowBlur = 0;
+
+                    ctx.strokeStyle = C_ACCENT; ctx.lineWidth = 3;
+                    ctx.beginPath(); ctx.arc(detX, midY, 40, 0, Math.PI*2); ctx.stroke();
+                    drawText("SENSOR", detX, midY + 60, 14, C_ACCENT, 'center');
+                    drawParagraph("Integrated Microfluidics + AI = The Future. Shrinking the lab to the size of a coin.", cx - 350, chipY + chipH + 60, 700, 30, 18, C_TEXT_MAIN);
+                }
+            },
+
+            // 8. MIC DROP
+            {
+                draw: (t) => {
+                    if (!particlesInit) initParticles("QUESTIONS?");
+                    endParticles.forEach(p => {
+                        const dx = mouse.x - p.x; const dy = mouse.y - p.y;
+                        const d = Math.sqrt(dx*dx + dy*dy);
+                        if (d < 120) { p.vx -= dx/d * 2; p.vy -= dy/d * 2; }
+                        p.vx += (p.ox - p.x) * 0.05; p.vy += (p.oy - p.y) * 0.05; p.vx *= 0.9; p.vy *= 0.9; p.x += p.vx; p.y += p.vy;
+                        ctx.globalAlpha = 0.5 + Math.sin(t * 5 + p.phase)*0.5; ctx.fillStyle = p.col; ctx.fillRect(p.x, p.y, 4, 4);
+                    });
+                    ctx.globalAlpha = 1;
+                    drawText("(Mouse over to interact)", width/2, height - 100, 14, '#555', 'center', 'JetBrains Mono');
+                }
+            }
+        ];
+
+        // --- LOOP ---
+        function loop() {
+            globalTime += 0.02;
+            ctx.fillStyle = C_BG; ctx.fillRect(0, 0, width, height);
+            
+            // Subtle Grid Background
+            ctx.strokeStyle = C_GRID; ctx.lineWidth = 1;
+            for(let x=0; x<width; x+=60) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,height); ctx.stroke(); }
+            for(let y=0; y<height; y+=60) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(width,y); ctx.stroke(); }
+
+            if (slides[currentSlide]) slides[currentSlide].draw(globalTime);
+
+            // Progress Bar
+            ctx.fillStyle = C_ACCENT; ctx.fillRect(0, height-6, (currentSlide+1)/slides.length * width, 6);
+            drawText(`${currentSlide+1} / ${slides.length}`, width - 60, height - 30, 16, '#475569', 'right', 'JetBrains Mono');
+
+            // Nav Hints
+            if(mouse.x > width*0.9) { ctx.fillStyle='rgba(255,255,255,0.05)'; ctx.fillRect(width*0.9,0,width*0.1,height); drawText("→",width*0.95,height/2,40,'#FFF','center'); }
+            if(mouse.x < width*0.1 && currentSlide > 0) { ctx.fillStyle='rgba(255,255,255,0.05)'; ctx.fillRect(0,0,width*0.1,height); drawText("←",width*0.05,height/2,40,'#FFF','center'); }
+
+            requestAnimationFrame(loop);
+        }
+        loop();
+    </script>
+</body>
+</html>
