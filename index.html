@@ -297,7 +297,7 @@
             {
                 draw: (t) => {
                     drawHeader("03", "The Data", "Affinity vs. Residence Time", C_ACCENT);
-                    drawParagraph("Affinity tells you how strong. Kinetics tells you how long. Residence time is king.", 80, 240, 400, 32, 18, C_TEXT_MUTED);
+                    drawParagraph("Affinity tells you how strong. Kinetics tells you how long. Residence time is the most useful metric when it comes to medicine testing.", 80, 240, 400, 32, 18, C_TEXT_MUTED);
 
                     if (kineticsState.running && kineticsState.time < kineticsState.totalTime) kineticsState.time += 4; 
                     const gx = width * 0.45; const gy = height * 0.25; const gw = width * 0.45; const gh = height * 0.55;
@@ -327,8 +327,8 @@
                         ctx.fillStyle = active ? col : '#1e293b'; ctx.fillRect(bx, by + yOff, 20, 20);
                         drawText(lbl, bx + 35, by + yOff + 15, 16, '#cbd5e1');
                     };
-                    drawToggle("Drug A (Fast Off) - The Bad Date", C_DRUG_A, kineticsState.showA, 0);
-                    drawToggle("Drug B (Slow Off) - The Keeper", C_DRUG_B, kineticsState.showB, 40);
+                    drawToggle("Drug A (Fast Off) - Ibuprofen (Advil/Ipren)", C_DRUG_A, kineticsState.showA, 0);
+                    drawToggle("Drug B (Slow Off) - Naproxen (Aleve)", C_DRUG_B, kineticsState.showB, 40);
 
                     const cx = width * 0.675; const cy = height * 0.9;
                     ctx.fillStyle = kineticsState.running ? '#f59e0b' : '#10b981'; ctx.beginPath(); ctx.arc(cx - 40, cy, 30, 0, Math.PI*2); ctx.fill();
@@ -342,7 +342,7 @@
             {
                 draw: (t) => {
                     const cx = width / 2;
-                    drawHeader("04", "The Vibe Check", "Tale of the Tape", C_TEXT_MAIN);
+                    drawHeader("04", "Comparison of ELISA and SPR", C_TEXT_MAIN);
                     const cy = height / 2; const barW = 300;
                     const labels = ["THROUGHPUT", "INFO DENSITY", "COST EFFICIENCY", "COOL FACTOR"];
                     const eVals = [9, 2, 8, 1]; const sVals = [4, 10, 3, 10];
@@ -365,7 +365,7 @@
             {
                 draw: (t) => {
                     drawHeader("05", "The Evolution", "LSPR: Nano-Scale Sensing", C_NANO);
-                    drawParagraph("We ditched the prism. Now the particle is the sensor. Watch the spectral shift (Cyan to Red) as molecules bind.", 80, 260, 500, 32, 20, '#cbd5e1');
+                    drawParagraph("This technique no longer uses a prism. Now the particle is the sensor. Watch the spectral shift (Cyan to Red) as molecules bind.", 80, 260, 500, 32, 20, '#cbd5e1');
 
                     const nx = width * 0.7; const ny = height * 0.5;
                     if (Math.random() > 0.95) lsprState.analytes.push({x: Math.random()*width, y: -50, vx: (Math.random()-0.5)*2, vy: Math.random()*2+1, angle: Math.random(), bound: false});
@@ -630,4 +630,5 @@
         loop();
     </script>
 </body>
+
 </html>
